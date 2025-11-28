@@ -59,7 +59,7 @@ impl<R: Resource> Miner<R> {
         self,
         _: Tick<BeforeTicks>,
     ) -> (Tick<BeforeTicks::Sum>, Self, Bundle<R, Duration::Quotient>) {
-        (New::NEW, New::NEW, New::NEW)
+        New::NEW
     }
 }
 
