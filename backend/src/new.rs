@@ -32,7 +32,7 @@ impl<T0: New, T1: New, T2: New, T3: New, T4: New, T5: New> New for (T0, T1, T2, 
 
 #[macro_export]
 macro_rules! impl_new {
-    ($T: tt, $($Generic:tt, $Bound:tt),+) => {
+    ($T: tt, $($Generic:tt, $Bound:tt),*) => {
         impl<$($Generic : $Bound),*> $crate::new::New for $T<$($Generic,)*> {
             const NEW: Self = Self(PhantomData);
         }

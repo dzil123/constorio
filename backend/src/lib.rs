@@ -1,9 +1,14 @@
-use std::{marker::PhantomData, ops::*};
+use std::{marker::PhantomData, mem::forget, ops::*};
 
 pub use typenum::{self, NonZero, Unsigned, consts::*, operator_aliases::*, type_operators::*};
 
-use crate::new::New;
+use crate::{
+    log::{Cons, MineEvent, NIL, Nil, SmeltEvent},
+    new::New,
+};
 
+pub use log::Log;
+mod log;
 mod new;
 
 macro_rules! make_fn {
@@ -11,8 +16,10 @@ macro_rules! make_fn {
         $(<$T:ty, $U:ty> $(,)?)*
         $(Diff<$Tsub:ty, $Usub:ty> $(,)?)*
         $(Quot<$Tdiv:ty, $Udiv:ty> $(,)?)*
+        $($code:block)?
         ; $($stub:tt)*
     } => {
+        #[allow(clippy::type_complexity)]
         $($stub)*
         where
         $(
@@ -32,7 +39,10 @@ macro_rules! make_fn {
             $Udiv: Unsigned,
             Quot<$Tdiv, $Udiv>: Unsigned,
         )*
-        { New::NEW }
+        {
+            $($code)?
+            New::NEW
+        }
     }
 }
 
@@ -97,10 +107,12 @@ impl<R: CanMine, TS: Unsigned> Miner<R, TS> {
 
     make_fn! {
         <TS, Duration>,
-        Quot<Duration, R::MiningTicks>;
-        pub const fn mine_for_duration<Duration>(self) -> (
+        Quot<Duration, R::MiningTicks>
+        { forget(log); };
+        pub const fn mine_for_duration<Duration, L: Log>(self, log: L) -> (
             Miner<R, Sum<TS, Duration>>,
             Bundle<R, Quot<Duration, R::MiningTicks>, Sum<TS, Duration>>,
+            Cons<L, MineEvent<R, Duration, TS>>,
         )
     }
 }
@@ -119,8 +131,9 @@ impl<TS: Unsigned> Furnace<TS> {
         <TS, TS2>, <NIn, R::SmeltTicks>,
         <Maximum<TS, TS2>, Prod<NIn, R::SmeltTicks>>,
         <Quot<NIn, R::SmeltInCount>, R::SmeltOutCount>
-        Quot<NIn, R::SmeltInCount>;
-        pub const fn smelt_all<R: CanSmelt, NIn, TS2>(self, _: Bundle<R, NIn, TS2>) -> (
+        Quot<NIn, R::SmeltInCount>
+        { forget(log); };
+        pub const fn smelt_all<R: CanSmelt, NIn, TS2, L: Log>(self, _: Bundle<R, NIn, TS2>, log: L) -> (
             Furnace<
                 Sum<Maximum<TS, TS2>, Prod<NIn, R::SmeltTicks>>
             >,
@@ -129,6 +142,7 @@ impl<TS: Unsigned> Furnace<TS> {
                 Prod<Quot<NIn, R::SmeltInCount>, R::SmeltOutCount>,
                 Sum<Maximum<TS, TS2>, Prod<NIn, R::SmeltTicks>>
             >,
+            Cons<L, SmeltEvent<R, Prod<NIn, R::SmeltTicks>, Maximum<TS, TS2>>>
         )
     }
 }
@@ -139,18 +153,20 @@ pub trait Scenario {
     type EndResource: Resource;
     type EndResourceCount: Unsigned;
 
-    fn run<TS: Unsigned>(func: GameFunction<Self, TS>) -> usize {
-        let _: ScenarioEndBundle<Self, TS> = (func)(New::NEW);
+    fn run<TS: Unsigned, L: Log>(func: GameFunction<Self, TS, L>) -> usize {
+        let _: (ScenarioEndBundle<Self, TS>, L) = (func)(New::NEW, NIL);
         println!(
             "completed scenario {} in {} ticks",
             std::any::type_name::<Self>(),
             TS::USIZE
         );
+        L::print();
+        println!();
         TS::USIZE
     }
 
-    fn run_quiet<TS: Unsigned>(func: GameFunction<Self, TS>) -> usize {
-        let _: ScenarioEndBundle<Self, TS> = (func)(New::NEW);
+    fn run_quiet<TS: Unsigned, L: Log>(func: GameFunction<Self, TS, L>) -> usize {
+        let _: (ScenarioEndBundle<Self, TS>, L) = (func)(New::NEW, NIL);
         TS::USIZE
     }
 }
@@ -158,7 +174,8 @@ pub type ScenarioStartItems<S> = <S as Scenario>::StartItems;
 pub type ScenarioEndBundle<S, TS> =
     Bundle<<S as Scenario>::EndResource, <S as Scenario>::EndResourceCount, TS>;
 
-pub type GameFunction<S, TS> = fn(ScenarioStartItems<S>) -> ScenarioEndBundle<S, TS>;
+pub type GameFunction<S, TS, L> =
+    fn(ScenarioStartItems<S>, log: Nil) -> (ScenarioEndBundle<S, TS>, L);
 
 mod private {
     pub trait Sealed {}
