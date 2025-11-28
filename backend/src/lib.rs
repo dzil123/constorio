@@ -9,27 +9,51 @@ use crate::new::New;
 
 mod new;
 
-pub struct Tick<N: Unsigned>(PhantomData<N>);
-impl_new!(Tick, N, Unsigned);
+pub struct Tick<TS: Unsigned>(PhantomData<TS>);
+impl_new!(Tick, TS, Unsigned);
 pub type NewTick = Tick<U0>;
+
+impl<TS: Unsigned> Tick<TS> {
+    pub const fn ffwd<Duration: Unsigned>(self) -> Tick<TS::Sum>
+    where
+        TS: Addable<Duration>,
+    {
+        New::NEW
+    }
+}
 
 pub trait Resource: private::Sealed {
     type MiningTicks: Unsigned + NonZero; // time to mine one of resource
 }
-pub struct Bundle<R: Resource, N: Unsigned>(PhantomData<(R, N)>);
-impl_new!(Bundle, R, Resource, N, Unsigned);
+
+// TS means Timestamp
+pub struct Bundle<R: Resource, N: Unsigned, TS: Unsigned>(PhantomData<(R, N, TS)>);
+impl_new!(Bundle, R, Resource, N, Unsigned, TS, Unsigned);
+
+impl<R: Resource, N: Unsigned, TS: Unsigned> Bundle<R, N, TS> {
+    pub const fn ffwd<Duration: Addable<TS>>(self) -> Bundle<R, N, Duration::Sum>
+    {
+        New::NEW
+    }
+
+    /// combine two bundles with same resource and timestamp but different N counts into the sum
+    pub const fn combine<N2: Addable<N>>(self, _: Bundle<R, N2, TS>) -> Bundle<R, N2::Sum, TS>
+    {
+        New::NEW
+    }
+}
 
 pub struct Iron(PhantomData<()>);
-pub type IronBundle<N> = Bundle<Iron, N>;
+pub type IronBundle<N, TS> = Bundle<Iron, N, TS>;
 
 impl private::Sealed for Iron {}
 impl Resource for Iron {
     type MiningTicks = U2;
 }
 
-pub struct Miner<R: Resource>(PhantomData<R>);
-impl_new!(Miner, R, Resource);
-pub type NewMiner<R> = Miner<R>;
+pub struct Miner<R: Resource, TS: Unsigned>(PhantomData<(R, TS)>);
+impl_new!(Miner, R, Resource, TS, Unsigned);
+pub type NewMiner<R> = Miner<R, U0>;
 
 pub trait Addable<Rhs: Unsigned>: Unsigned {
     type Sum: Unsigned;
@@ -51,23 +75,37 @@ where
     type Quotient = V;
 }
 
-impl<R: Resource> Miner<R> {
-    pub const fn mine_for_duration<
-        BeforeTicks: Addable<Duration>,
-        Duration: Divable<R::MiningTicks>,
-    >(
+impl<R: Resource, TS: Unsigned> Miner<R, TS> {
+    pub const fn ffwd<Duration: Addable<TS>>(self) -> Miner<R, Duration::Sum>
+    {
+        New::NEW
+    }
+
+    pub const fn mine_for_duration<Duration: Addable<TS> + Divable<R::MiningTicks>>(
         self,
-        _: Tick<BeforeTicks>,
-    ) -> (Tick<BeforeTicks::Sum>, Self, Bundle<R, Duration::Quotient>) {
+        _: &Tick<TS>,
+    ) -> (
+        Tick<Duration::Sum>,
+        Miner<R, Duration::Sum>,
+        Bundle<R, Duration::Quotient, Duration::Sum>,
+    )
+    {
         New::NEW
     }
 }
 
-type GameFunction<N> = fn(NewTick, NewMiner<Iron>) -> (Tick<N>, Bundle<Iron, U5>);
-pub fn run<N: Unsigned>(func: GameFunction<N>) -> usize {
-    let _: (Tick<N>, Bundle<Iron, U5>) = (func)(New::NEW, New::NEW);
-    println!("successfully completed game in {} ticks", N::USIZE);
-    N::USIZE
+type GameFunction<TS> = fn(NewTick, NewMiner<Iron>) -> (Bundle<Iron, U5, TS>,);
+pub fn run<TS: Unsigned>(func: GameFunction<TS>) -> usize {
+    let _: (Bundle<Iron, U5, TS>,) = (func)(New::NEW, New::NEW);
+    println!("successfully completed game in {} ticks", TS::USIZE);
+    TS::USIZE
+}
+
+type GameFunction2<TS> = fn(NewTick, NewMiner<Iron>, NewMiner<Iron>) -> (Bundle<Iron, U5, TS>,);
+pub fn run2<TS: Unsigned>(func: GameFunction2<TS>) -> usize {
+    let _: (Bundle<Iron, U5, TS>,) = (func)(New::NEW, New::NEW, New::NEW);
+    println!("successfully completed game with 2 miners in {} ticks", TS::USIZE);
+    TS::USIZE
 }
 
 mod private {
