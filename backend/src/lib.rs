@@ -8,8 +8,9 @@ mod new;
 
 macro_rules! make_fn {
     {
-        $(<$T:ty, $U:ty>),* $(,)?
-        $(Quot<$Tdiv:ty, $Udiv:ty>),*
+        $(<$T:ty, $U:ty> $(,)?)*
+        $(Diff<$Tsub:ty, $Usub:ty> $(,)?)*
+        $(Quot<$Tdiv:ty, $Udiv:ty> $(,)?)*
         ; $($stub:tt)*
     } => {
         $($stub)*
@@ -20,6 +21,11 @@ macro_rules! make_fn {
             Sum<$T, $U>: Unsigned,
             Maximum<$T, $U>: Unsigned,
             Prod<$T, $U>: Unsigned,
+        )*
+        $(
+            $Tsub: Unsigned + Sub<$Usub>,
+            $Usub: Unsigned,
+            Diff<$Tsub, $Usub>: Unsigned,
         )*
         $(
             $Tdiv: Unsigned + Div<$Udiv>,
@@ -55,9 +61,14 @@ impl<R: Resource, N: Unsigned, TS: Unsigned> Bundle<R, N, TS> {
         <N, N2>, <TS, TS2>;
         pub const fn combine<N2, TS2>(self, _: Bundle<R, N2, TS2>) -> Bundle<R, Sum<N, N2>, Maximum<TS, TS2>>
     }
+
+    make_fn! {
+        Diff<N, N2>;
+        pub const fn split<N2>(self) -> (Bundle<R, N2, TS>, Bundle<R, Diff<N, N2>, TS>)
+    }
 }
 
-pub struct IronOre(PhantomData<()>);
+pub struct IronOre;
 impl private::Sealed for IronOre {}
 impl Resource for IronOre {}
 impl CanMine for IronOre {
@@ -70,7 +81,7 @@ impl CanSmelt for IronOre {
     type SmeltOutput = IronIngot;
 }
 
-pub struct IronIngot(PhantomData<()>);
+pub struct IronIngot;
 impl private::Sealed for IronIngot {}
 impl Resource for IronIngot {}
 
@@ -94,17 +105,23 @@ impl<R: CanMine, TS: Unsigned> Miner<R, TS> {
     }
 }
 
-pub struct Furnace<R: CanSmelt, TS: Unsigned>(PhantomData<(R, TS)>);
-impl_new!(Furnace, R, CanSmelt, TS, Unsigned);
-impl<R: CanSmelt, TS: Unsigned> Furnace<R, TS> {
+pub struct Furnace<TS: Unsigned>(PhantomData<TS>);
+impl_new!(Furnace, TS, Unsigned);
+pub type NewFurnace = Furnace<U0>;
+
+impl<TS: Unsigned> Furnace<TS> {
+    make_fn! {
+        <TS, Duration>;
+        pub const fn ffwd<Duration>(self) -> Furnace<Sum<TS, Duration>>
+    }
+
     make_fn! {
         <TS, TS2>, <NIn, R::SmeltTicks>,
         <Maximum<TS, TS2>, Prod<NIn, R::SmeltTicks>>,
         <Quot<NIn, R::SmeltInCount>, R::SmeltOutCount>
         Quot<NIn, R::SmeltInCount>;
-        pub const fn smelt_all<NIn, TS2>(self, _: Bundle<R, NIn, TS2>) -> (
+        pub const fn smelt_all<R: CanSmelt, NIn, TS2>(self, _: Bundle<R, NIn, TS2>) -> (
             Furnace<
-                R,
                 Sum<Maximum<TS, TS2>, Prod<NIn, R::SmeltTicks>>
             >,
             Bundle<
@@ -116,22 +133,32 @@ impl<R: CanSmelt, TS: Unsigned> Furnace<R, TS> {
     }
 }
 
-type GameFunction<TS> = fn(NewMiner<IronOre>) -> (Bundle<IronOre, U5, TS>,);
-pub fn run<TS: Unsigned>(func: GameFunction<TS>) -> usize {
-    let _: (Bundle<IronOre, U5, TS>,) = (func)(New::NEW);
-    println!("successfully completed game in {} ticks", TS::USIZE);
-    TS::USIZE
-}
+pub trait Scenario {
+    #[expect(private_bounds)]
+    type StartItems: New;
+    type EndResource: Resource;
+    type EndResourceCount: Unsigned;
 
-type GameFunction2<TS> = fn(NewMiner<IronOre>, NewMiner<IronOre>) -> (Bundle<IronOre, U5, TS>,);
-pub fn run2<TS: Unsigned>(func: GameFunction2<TS>) -> usize {
-    let _: (Bundle<IronOre, U5, TS>,) = (func)(New::NEW, New::NEW);
-    println!(
-        "successfully completed game with 2 miners in {} ticks",
+    fn run<TS: Unsigned>(func: GameFunction<Self, TS>) -> usize {
+        let _: ScenarioEndBundle<Self, TS> = (func)(New::NEW);
+        println!(
+            "completed scenario {} in {} ticks",
+            std::any::type_name::<Self>(),
+            TS::USIZE
+        );
         TS::USIZE
-    );
-    TS::USIZE
+    }
+
+    fn run_quiet<TS: Unsigned>(func: GameFunction<Self, TS>) -> usize {
+        let _: ScenarioEndBundle<Self, TS> = (func)(New::NEW);
+        TS::USIZE
+    }
 }
+pub type ScenarioStartItems<S> = <S as Scenario>::StartItems;
+pub type ScenarioEndBundle<S, TS> =
+    Bundle<<S as Scenario>::EndResource, <S as Scenario>::EndResourceCount, TS>;
+
+pub type GameFunction<S, TS> = fn(ScenarioStartItems<S>) -> ScenarioEndBundle<S, TS>;
 
 mod private {
     pub trait Sealed {}
