@@ -5,7 +5,9 @@ use std::{
 
 pub use typenum::{self, NonZero, Unsigned, consts::*};
 
-use crate::private::New;
+use crate::new::New;
+
+mod new;
 
 pub struct Tick<N: Unsigned>(PhantomData<N>);
 impl_new!(Tick, N, Unsigned);
@@ -50,35 +52,24 @@ where
 }
 
 impl<R: Resource> Miner<R> {
-    pub fn mine_for_duration<BeforeTicks: Addable<Duration>, Duration: Divable<R::MiningTicks>>(
+    pub const fn mine_for_duration<
+        BeforeTicks: Addable<Duration>,
+        Duration: Divable<R::MiningTicks>,
+    >(
         self,
         _: Tick<BeforeTicks>,
     ) -> (Tick<BeforeTicks::Sum>, Self, Bundle<R, Duration::Quotient>) {
-        (New::new(), New::new(), New::new())
+        (New::NEW, New::NEW, New::NEW)
     }
 }
 
 type GameFunction<N> = fn(NewTick, NewMiner<Iron>) -> (Tick<N>, Bundle<Iron, U5>);
 pub fn run<N: Unsigned>(func: GameFunction<N>) -> usize {
-    let _: (Tick<N>, Bundle<Iron, U5>) = (func)(New::new(), NewMiner::new());
+    let _: (Tick<N>, Bundle<Iron, U5>) = (func)(New::NEW, New::NEW);
     println!("successfully completed game in {} ticks", N::USIZE);
     N::USIZE
 }
 
 mod private {
     pub trait Sealed {}
-
-    pub(crate) trait New {
-        fn new() -> Self;
-    }
-    #[macro_export]
-    macro_rules! impl_new {
-        ($T: tt, $($Generic:tt, $Bound:tt),+) => {
-            impl<$($Generic : $Bound),*> $crate::private::New for $T<$($Generic,)*> {
-                fn new() -> Self {
-                    Self(PhantomData)
-                }
-            }
-        }
-    }
 }
