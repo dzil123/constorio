@@ -1,4 +1,7 @@
-use std::{marker::PhantomData, ops::{Div,Add}};
+use std::{
+    marker::PhantomData,
+    ops::{Add, Div},
+};
 
 pub use typenum::{self, NonZero, Unsigned, consts::*};
 
@@ -39,11 +42,12 @@ where
 pub trait Divable<Rhs: Unsigned>: Unsigned {
     type Quotient: Unsigned;
 }
-impl <T: Unsigned, U: Unsigned, V: Unsigned> Divable<U> for T where 
-T: Div<U, Output=V> {
+impl<T: Unsigned, U: Unsigned, V: Unsigned> Divable<U> for T
+where
+    T: Div<U, Output = V>,
+{
     type Quotient = V;
 }
-
 
 impl<R: Resource> Miner<R> {
     pub fn mine_for_duration<BeforeTicks: Addable<Duration>, Duration: Divable<R::MiningTicks>>(
@@ -55,9 +59,10 @@ impl<R: Resource> Miner<R> {
 }
 
 type GameFunction<N> = fn(NewTick, NewMiner<Iron>) -> (Tick<N>, Bundle<Iron, U5>);
-pub fn run<N: Unsigned>(func: GameFunction<N>) {
+pub fn run<N: Unsigned>(func: GameFunction<N>) -> usize {
     let _: (Tick<N>, Bundle<Iron, U5>) = (func)(New::new(), NewMiner::new());
     println!("successfully completed game in {} ticks", N::USIZE);
+    N::USIZE
 }
 
 mod private {
